@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mapa de Álava en WinCC Unified</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Estilos y librerías de Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+<body>
+    <div id="map" style="width: 100%; height: 100vh;"></div>
+
+    <script>
+        // Inicializar el mapa en Álava (Vitoria-Gasteiz)
+        var map = L.map('map').setView([42.849, -2.672], 10); 
+
+        // Agregar capa de OpenStreetMap
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Agregar marcador en Vitoria-Gasteiz
+        var marker = L.marker([42.846, -2.672]).addTo(map);
+        marker.bindPopup("<b>Vitoria-Gasteiz</b><br>Capital de Álava.").openPopup();
+
+        // Agregar más marcadores en otras localidades de Álava
+        var puntos = [
+            { coords: [42.667, -2.948], texto: "Laudio / Llodio" },
+            { coords: [42.590, -2.735], texto: "Amurrio" },
+            { coords: [42.670, -2.232], texto: "Laguardia" }
+        ];
+
+        puntos.forEach(function(punto) {
+            L.marker(punto.coords).addTo(map)
+                .bindPopup("<b>" + punto.texto + "</b>");
+        });
+
+        // Evento de clic en el mapa para mostrar coordenadas
+        map.on('click', function(e) {
+            L.popup()
+                .setLatLng(e.latlng)
+                .setContent("Coordenadas: " + e.latlng.lat.toFixed(5) + ", " + e.latlng.lng.toFixed(5))
+                .openOn(map);
+        });
+    </script>
+</body>
+</html>
