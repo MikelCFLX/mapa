@@ -1,35 +1,227 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa de Vitoria-Gasteiz</title>
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <!-- Leaflet JavaScript -->
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <!-- Estilo para el mapa -->
-    <style>
-        #map { height: 600px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Onda Dinámica</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      margin-top: 20vh;
+    }
+
+    #wave {
+      width: 100%;
+      height: 70px;
+      top: 10px;
+      z-index: 10;
+      position: relative;
+    }
+
+    .content {
+      background: #2a6380;
+      height: calc(80vh - 74px);
+    }
+
+    #start {
+      position: absolute;
+      top: 20px;
+      left: 30px;
+      padding: 10px;
+      background: #f5f5f5;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-    <h1>Mapa de Vitoria-Gasteiz</h1>
-    <div id="map"></div>
+  <div class="container">
+    <svg id="wave"></svg>
+    <div class="content"></div>
+    <button id="start">Start Wave</button>
+  </div>
 
-    <!-- Script del mapa -->
-    <script>
-        // Crear el mapa y centrarlo en Vitoria-Gasteiz
-        const map = L.map('map').setView([42.8465, -2.6724], 13); // Coordenadas de Vitoria-Gasteiz
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/snap.svg/0.5.1/snap.svg-min.js"></script>
+  <script>
+    // http://gamedev.stackexchange.com/questions/44547/2d-water-with-dynamic-waves
+    var s = Snap('#wave');
 
-        // Añadir una capa de mapa base (OpenStreetMap)
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
+    var wave = s.paper.path('').attr({
+      fill: '#2a6380',
+    });
 
-        // Añadir un marcador en Vitoria-Gasteiz
-        const marker = L.marker([42.8465, -2.6724]).addTo(map);
-        marker.bindPopup("<b>¡Hola!</b><br>Este es Vitoria-Gasteiz.").openPopup();
-    </script>
+    var lastUpdate = +new Date;
+
+    // rain count
+    var RAIN_COUNT = 6;
+    // Resolution of simulation
+    var NUM_POINTS = 180;
+    // Width of simulation
+    var WIDTH = window.innerWidth;
+    // Horizonal Position
+    var X_OFFSET = 0;
+    // Spring constant for forces applied by adjacent points
+    var SPRING_CONSTANT = 0.005;
+    // Sprint constant for force applied to baseline
+    var SPRING_CONSTANT_BASELINE = 0.005;
+    // Vertical draw offset of simulation
+    var Y_OFFSET = 30;
+    // Damping to apply to speed changes
+    var DAMPING = 0.99;
+    // Number of iterations of point-influences-point to do on wave per step
+    // (this makes the waves animate faster)
+    var ITERATIONS = 10;
+
+    // A phase difference to apply to each sine
+    var offset = 0;
+
+    var NUM_BACKGROUND_WAVES = 5;
+    var BACKGROUND_WAVE_MAX_HEIGHT = 2;
+    var BACKGROUND_WAVE_COMPRESSION = 1 / 20;
+    // Amounts by which a particular sine is offset
+    var sineOffsets = [];
+    // Amounts by which a particular sine is amplified
+    var sineAmplitudes = [];
+    // Amounts by which a particular sine is stretched
+    var sineStretches = [];
+    // Amounts by which a particular sine's offset is multiplied
+    var offsetStretches = [];
+    // Set each sine's values to a reasonable random value
+    var tableContent = "";
+    var rainState;
+    var wavePoints = makeWavePoints(NUM_POINTS);
+
+    function init() {
+      for (var i = 0; i < NUM_BACKGROUND_WAVES; i++) {
+        var sineOffset = -Math.PI + 2 * Math.PI * Math.random();
+        sineOffsets.push(sineOffset);
+        var sineAmplitude = Math.random() * BACKGROUND_WAVE_MAX_HEIGHT;
+        sineAmplitudes.push(sineAmplitude);
+        var sineStretch = Math.random() * BACKGROUND_WAVE_COMPRESSION;
+        sineStretches.push(sineStretch);
+        var offsetStretch = Math.random() * BACKGROUND_WAVE_COMPRESSION;
+        offsetStretches.push(offsetStretch);
+      }
+    }
+
+    // Make points to go on the wave
+    function makeWavePoints(numPoints) {
+      var t = [];
+      for (var n = 0; n < numPoints + 1; n++) {
+        // This represents a point on the wave
+        var newPoint = {
+          x: n / numPoints * WIDTH + X_OFFSET,
+          y: Y_OFFSET,
+          spd: {
+            y: 0
+          }, // speed with vertical component zero
+          mass: 2
+        }
+        t.push(newPoint);
+      }
+      return t;
+    }
+
+    // This function sums together the sines generated above,
+    // given an input value x
+    function overlapSines(x) {
+      var result = 0;
+      for (var i = 0; i < NUM_BACKGROUND_WAVES; i++) {
+        result = result + sineOffsets[i] + sineAmplitudes[i] * Math.sin(x * sineStretches[i] + offset * offsetStretches[i]);
+      }
+      return result;
+    }
+
+    // Update the positions of each wave point
+    function updateWavePoints(points, dt) {
+      for (var i = 0; i < ITERATIONS; i++) {
+        for (var n = 0; n < points.length; n++) {
+          var p = points[n];
+          // force to apply to this point
+          var force = 0;
+
+          // forces caused by the point immediately to the left or the right
+          var forceFromLeft, forceFromRight;
+
+          if (n == 0) { // wrap to left-to-right
+            var dy = points[points.length - 1].y - p.y;
+            forceFromLeft = SPRING_CONSTANT * dy;
+          } else { // normally
+            var dy = points[n - 1].y - p.y;
+            forceFromLeft = SPRING_CONSTANT * dy;
+          }
+          if (n == points.length - 1) { // wrap to right-to-left
+            var dy = points[0].y - p.y;
+            forceFromRight = SPRING_CONSTANT * dy;
+          } else { // normally
+            var dy = points[n + 1].y - p.y;
+            forceFromRight = SPRING_CONSTANT * dy;
+          }
+
+          // Also apply force toward the baseline
+          var dy = Y_OFFSET - p.y;
+          forceToBaseline = SPRING_CONSTANT_BASELINE * dy;
+
+          // Sum up forces
+          force = force + forceFromLeft;
+          force = force + forceFromRight;
+          force = force + forceToBaseline;
+
+          // Calculate acceleration
+          var acceleration = force / p.mass;
+
+          // Apply acceleration (with damping)
+          p.spd.y = DAMPING * p.spd.y + acceleration;
+
+          // Apply speed
+          p.y = p.y + p.spd.y;
+        }
+      }
+    }
+
+    // Callback for drawing
+    function drawWave(dt) {
+      offset = offset + 1;
+      // Update positions of points
+      updateWavePoints(wavePoints, dt);
+
+      var path = [];
+      for (var n = 0; n < wavePoints.length; n++) {
+        var p = wavePoints[n];
+        if (n == 0) {
+          path.push('M' + p.x + ' ' + (p.y + overlapSines(p.x, 0, 0)));
+        } else {
+          path.push(p.x + ' ' + (p.y + overlapSines(p.x)));
+        }
+      }
+      path.push('V200H0');
+      wave.attr({
+        path: path
+      });
+    }
+
+    function run(animate = true) {
+      var now = +new Date;
+      var dt = now - lastUpdate;
+      lastUpdate = now;
+      drawWave(dt);
+
+      if (animate) {
+        requestAnimationFrame(run);
+      }
+    }
+
+    init();
+    run(false);
+
+    document.getElementById('start').addEventListener('click', function () {
+      run();
+    });
+  </script>
 </body>
 </html>
