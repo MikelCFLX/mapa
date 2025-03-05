@@ -10,32 +10,34 @@
       padding: 0;
     }
 
+    body {
+      background-color: rgb(97, 226, 231); /* Fondo azul */
+    }
+
     .container {
-      margin-top: 20vh;
+      position: relative;
+      width: 100%;
+      height: 300px;
+      overflow: hidden;
     }
 
     #wave {
       width: 100%;
-      height: 70px;
-      top: 10px;
+      height: 100px;
+      position: absolute;
+      bottom: 0;
+      left: 0;
       z-index: 10;
-      position: relative;
     }
 
     .content {
-      background: #2a6380;
-      height: calc(80vh - 74px);
-    }
-
-    #start {
       position: absolute;
-      top: 20px;
-      left: 30px;
-      padding: 10px;
-      background: #f5f5f5;
-      border: 1px solid #ccc;
-      border-radius: 3px;
-      cursor: pointer;
+      top: 100px;
+      left: 0;
+      width: 100%;
+      height: calc(100% - 100px);
+      background-color: #2a6380; /* Color de fondo del contenido */
+      z-index: 1;
     }
   </style>
 </head>
@@ -43,185 +45,124 @@
   <div class="container">
     <svg id="wave"></svg>
     <div class="content"></div>
-    <button id="start">Start Wave</button>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/snap.svg/0.5.1/snap.svg-min.js"></script>
   <script>
-    // http://gamedev.stackexchange.com/questions/44547/2d-water-with-dynamic-waves
     var s = Snap('#wave');
-
     var wave = s.paper.path('').attr({
       fill: '#2a6380',
     });
 
     var lastUpdate = +new Date;
-
-    // rain count
     var RAIN_COUNT = 6;
-    // Resolution of simulation
     var NUM_POINTS = 180;
-    // Width of simulation
     var WIDTH = window.innerWidth;
-    // Horizonal Position
     var X_OFFSET = 0;
-    // Spring constant for forces applied by adjacent points
     var SPRING_CONSTANT = 0.005;
-    // Sprint constant for force applied to baseline
     var SPRING_CONSTANT_BASELINE = 0.005;
-    // Vertical draw offset of simulation
     var Y_OFFSET = 30;
-    // Damping to apply to speed changes
     var DAMPING = 0.99;
-    // Number of iterations of point-influences-point to do on wave per step
-    // (this makes the waves animate faster)
     var ITERATIONS = 10;
-
-    // A phase difference to apply to each sine
     var offset = 0;
-
     var NUM_BACKGROUND_WAVES = 5;
     var BACKGROUND_WAVE_MAX_HEIGHT = 2;
     var BACKGROUND_WAVE_COMPRESSION = 1 / 20;
-    // Amounts by which a particular sine is offset
     var sineOffsets = [];
-    // Amounts by which a particular sine is amplified
     var sineAmplitudes = [];
-    // Amounts by which a particular sine is stretched
     var sineStretches = [];
-    // Amounts by which a particular sine's offset is multiplied
     var offsetStretches = [];
-    // Set each sine's values to a reasonable random value
-    var tableContent = "";
-    var rainState;
     var wavePoints = makeWavePoints(NUM_POINTS);
 
     function init() {
       for (var i = 0; i < NUM_BACKGROUND_WAVES; i++) {
-        var sineOffset = -Math.PI + 2 * Math.PI * Math.random();
-        sineOffsets.push(sineOffset);
-        var sineAmplitude = Math.random() * BACKGROUND_WAVE_MAX_HEIGHT;
-        sineAmplitudes.push(sineAmplitude);
-        var sineStretch = Math.random() * BACKGROUND_WAVE_COMPRESSION;
-        sineStretches.push(sineStretch);
-        var offsetStretch = Math.random() * BACKGROUND_WAVE_COMPRESSION;
-        offsetStretches.push(offsetStretch);
+        sineOffsets.push(-Math.PI + 2 * Math.PI * Math.random());
+        sineAmplitudes.push(Math.random() * BACKGROUND_WAVE_MAX_HEIGHT);
+        sineStretches.push(Math.random() * BACKGROUND_WAVE_COMPRESSION);
+        offsetStretches.push(Math.random() * BACKGROUND_WAVE_COMPRESSION);
       }
     }
 
-    // Make points to go on the wave
     function makeWavePoints(numPoints) {
       var t = [];
       for (var n = 0; n < numPoints + 1; n++) {
-        // This represents a point on the wave
-        var newPoint = {
+        t.push({
           x: n / numPoints * WIDTH + X_OFFSET,
           y: Y_OFFSET,
-          spd: {
-            y: 0
-          }, // speed with vertical component zero
+          spd: { y: 0 },
           mass: 2
-        }
-        t.push(newPoint);
+        });
       }
       return t;
     }
 
-    // This function sums together the sines generated above,
-    // given an input value x
     function overlapSines(x) {
       var result = 0;
       for (var i = 0; i < NUM_BACKGROUND_WAVES; i++) {
-        result = result + sineOffsets[i] + sineAmplitudes[i] * Math.sin(x * sineStretches[i] + offset * offsetStretches[i]);
+        result += sineOffsets[i] + sineAmplitudes[i] * Math.sin(x * sineStretches[i] + offset * offsetStretches[i]);
       }
       return result;
     }
 
-    // Update the positions of each wave point
     function updateWavePoints(points, dt) {
       for (var i = 0; i < ITERATIONS; i++) {
         for (var n = 0; n < points.length; n++) {
           var p = points[n];
-          // force to apply to this point
           var force = 0;
-
-          // forces caused by the point immediately to the left or the right
           var forceFromLeft, forceFromRight;
 
-          if (n == 0) { // wrap to left-to-right
-            var dy = points[points.length - 1].y - p.y;
-            forceFromLeft = SPRING_CONSTANT * dy;
-          } else { // normally
-            var dy = points[n - 1].y - p.y;
-            forceFromLeft = SPRING_CONSTANT * dy;
+          if (n == 0) {
+            forceFromLeft = SPRING_CONSTANT * (points[points.length - 1].y - p.y);
+          } else {
+            forceFromLeft = SPRING_CONSTANT * (points[n - 1].y - p.y);
           }
-          if (n == points.length - 1) { // wrap to right-to-left
-            var dy = points[0].y - p.y;
-            forceFromRight = SPRING_CONSTANT * dy;
-          } else { // normally
-            var dy = points[n + 1].y - p.y;
-            forceFromRight = SPRING_CONSTANT * dy;
+          if (n == points.length - 1) {
+            forceFromRight = SPRING_CONSTANT * (points[0].y - p.y);
+          } else {
+            forceFromRight = SPRING_CONSTANT * (points[n + 1].y - p.y);
           }
 
-          // Also apply force toward the baseline
-          var dy = Y_OFFSET - p.y;
-          forceToBaseline = SPRING_CONSTANT_BASELINE * dy;
-
-          // Sum up forces
-          force = force + forceFromLeft;
-          force = force + forceFromRight;
-          force = force + forceToBaseline;
-
-          // Calculate acceleration
+          var forceToBaseline = SPRING_CONSTANT_BASELINE * (Y_OFFSET - p.y);
+          force = forceFromLeft + forceFromRight + forceToBaseline;
           var acceleration = force / p.mass;
-
-          // Apply acceleration (with damping)
           p.spd.y = DAMPING * p.spd.y + acceleration;
-
-          // Apply speed
-          p.y = p.y + p.spd.y;
+          p.y += p.spd.y;
         }
       }
     }
 
-    // Callback for drawing
     function drawWave(dt) {
-      offset = offset + 1;
-      // Update positions of points
+      offset += 1;
       updateWavePoints(wavePoints, dt);
 
       var path = [];
       for (var n = 0; n < wavePoints.length; n++) {
         var p = wavePoints[n];
         if (n == 0) {
-          path.push('M' + p.x + ' ' + (p.y + overlapSines(p.x, 0, 0)));
+          path.push('M' + p.x + ' ' + (p.y + overlapSines(p.x)));
         } else {
-          path.push(p.x + ' ' + (p.y + overlapSines(p.x)));
+          path.push('L' + p.x + ' ' + (p.y + overlapSines(p.x)));
         }
       }
-      path.push('V200H0');
+      path.push('L' + WIDTH + ' ' + (Y_OFFSET + 100));
+      path.push('L0 ' + (Y_OFFSET + 100));
+      path.push('Z');
+
       wave.attr({
-        path: path
+        path: path.join(' ')
       });
     }
 
-    function run(animate = true) {
+    function run() {
       var now = +new Date;
       var dt = now - lastUpdate;
       lastUpdate = now;
       drawWave(dt);
-
-      if (animate) {
-        requestAnimationFrame(run);
-      }
+      requestAnimationFrame(run);
     }
 
     init();
-    run(false);
-
-    document.getElementById('start').addEventListener('click', function () {
-      run();
-    });
+    run(); // Inicia la animación automáticamente
   </script>
 </body>
 </html>
